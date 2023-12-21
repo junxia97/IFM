@@ -22,7 +22,7 @@ Take the MLP model as an example,
 python mlp.py
 ```
 
-## Feature Embedding Methods for Molecules
+## Feature Embedding (Mapping) Methods for Molecules
 Take the MLP model as an example,
 ```
 python emlp.py --embed EMBED --data_label DATASET
