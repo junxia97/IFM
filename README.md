@@ -41,7 +41,7 @@ year={2023}
 ```
 
 ## Acknowledgment
-[1] SMILES Transformer: Pre-trained Molecular Fingerprint for Low Data Drug Discovery (Honda et al., Arixv 2019) 
-[2] Exposing the limitations of molecular machine learning with activity cliffs (Tilborg et al., JCIM 2022)
+[1] SMILES Transformer: Pre-trained Molecular Fingerprint for Low Data Drug Discovery (Honda et al., Arixv 2019)             
+[2] Exposing the limitations of molecular machine learning with activity cliffs (Tilborg et al., JCIM 2022)                
 [3] Maxsmi: maximizing molecular property prediction performance with confidence estimation using smiles augmentation and deep learning. (Kimber et al., Artificial Intelligence in the Life Sciences 2021)
 
