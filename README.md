@@ -13,7 +13,7 @@ hyperopt                  0.2
 ```
 
 ## Dataset download
-All the necessary data files can be downloaded from the following link [Google Drive](https://drive.google.com/drive/folders/1ZYdYQ0TtmShJC-z6dr4BU1aPfeQSE9gD?usp=sharing), which include the (washed) molecules' SMILES strings, labels and various fingerprints.
+All the necessary data files can be downloaded from the following link [Google Drive](https://drive.google.com/drive/folders/1ZYdYQ0TtmShJC-z6dr4BU1aPfeQSE9gD?usp=sharing), which include the molecules' SMILES strings, labels and various fingerprints.
 
 
 ## Benchmarking Experiments
@@ -21,8 +21,9 @@ Take the MLP model as an example,
 ```
 python mlp.py
 ```
+The smiles indlude the codes for models that take SMILES as input.
 
-## Feature Embedding (Mapping) Methods for Molecules
+## Feature Embedding Methods for Molecules
 Take the MLP model as an example,
 ```
 python emlp.py --embed EMBED --data_label DATASET
@@ -41,7 +42,7 @@ year={2023}
 ```
 
 ## Acknowledgment
-[1] SMILES Transformer: Pre-trained Molecular Fingerprint for Low Data Drug Discovery (Honda et al., Arixv 2019)             
-[2] Exposing the limitations of molecular machine learning with activity cliffs (Tilborg et al., JCIM 2022)                
+[1] SMILES Transformer: Pre-trained Molecular Fingerprint for Low Data Drug Discovery (Honda et al., Arixv 2019)           
+[2] Exposing the limitations of molecular machine learning with activity cliffs (Tilborg et al., JCIM 2022)            
 [3] Maxsmi: maximizing molecular property prediction performance with confidence estimation using smiles augmentation and deep learning. (Kimber et al., Artificial Intelligence in the Life Sciences 2021)
 
