@@ -11,10 +11,24 @@ from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_cu
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor, XGBClassifier
 import multiprocessing
+import argparse
 from scipy.stats import ortho_group
-
 start = time.time()
+
 warnings.filterwarnings("ignore")
+#parser.add_argument('--device', type=int, default=6, help='which gpu to use if any (default: 0)')
+#parser.add_argument('--embed', type=str, default = 'GM', help='Embedding method: None, LE, LIFM, GM, SM, IFM.')
+#parser.add_argument('--epochs', type=int, default=300, help='running epochs')
+#parser.add_argument('--batch_size', type=int, default=128, help='batchsize')
+parser = argparse.ArgumentParser(description='PyTorch implementation')
+parser.add_argument('--data_label', type=str, default = 'sider', help='dataset.')
+parser.add_argument('--runseed', type=int, default=43, help = "Seed for minibatch selection, random initialization.")
+parser.add_argument('--patience', type=int, default=50, help='Patience')
+parser.add_argument('--opt_iters', type=int, default=50, help='Optimization_iters')
+parser.add_argument('--repetitions', type=int, default=50, help='Splitting repetitions')
+parser.add_argument('--num_pools', type =int , default=5 , help= 'The number of poolings')
+args = parser.parse_args()
+
 
 
 def standardize(col):
@@ -135,7 +149,7 @@ tasks_dic = {'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity
                          'Tanguay_ZF_120hpf_MORT_up', 'Tanguay_ZF_120hpf_PE_up',
                          'Tanguay_ZF_120hpf_SNOU_up', 'Tanguay_ZF_120hpf_YSE_up']}
                          
-dataset_label =sys.argv[1]
+dataset_label =args.data_label
 file_name =  './dataset/'+dataset_label+'_moe_pubsubfp.csv'
 
 if dataset_label=='esol' or dataset_label== 'freesolv' or dataset_label== 'lipop':
@@ -144,10 +158,10 @@ else:
   task_type='cla'
 
 tasks = tasks_dic[dataset_label]
-OPT_ITERS = 50
-repetitions = 50
-patience = 30
-num_pools = 5
+OPT_ITERS = args.opt_iters
+repetitions = args.repetitions
+patience = args.patience
+num_pools = args.num_pools
 space_ = {'learning_rate': hp.uniform('learning_rate', 0.01, 0.2),
           'gamma': hp.uniform('gamma', 0, 0.2),
           'min_child_weight': hp.choice('min_child_weight', range(1, 6)),
@@ -162,7 +176,7 @@ n_estimators_ls = [100, 200, 300, 400, 500, 1000, 1500, 2000]
 dataset = pd.read_csv(file_name)
 
 pd_res = []
-rota=ortho_group.rvs(2,random_state=114514)
+rota=ortho_group.rvs(2,random_state=args.runseed)
 global lenth
 lenth=1
 
@@ -206,7 +220,7 @@ def hyper_runing(subtask):
     # standardize the features
     cols_ = list(sub_dataset.columns)[2:]
     ro_data=sub_dataset.drop(sub_dataset.columns[0],axis=1)
-    rota=ortho_group.rvs(ro_data.shape[1],random_state=114514)
+    rota=ortho_group.rvs(ro_data.shape[1],random_state=args.runseed)
     ro_data=ro_data.dot(rota)
     ro_data.insert(0,sub_dataset.columns[0], sub_dataset.iloc[:, 0].values)
     sub_dataset = ro_data
@@ -272,7 +286,7 @@ def hyper_runing(subtask):
                                gamma=best_results['gamma'],
                                subsample=best_results['subsample'],
                                colsample_bytree=best_results['colsample_bytree'],
-                               n_jobs=6, random_state=1, seed=114, scale_pos_weight=pos_weight) \
+                               n_jobs=6, random_state=1, seed=args.runseed, scale_pos_weight=pos_weight) \
         if task_type == 'cla' else XGBRegressor(
         n_estimators=n_estimators_ls[best_results['n_estimators']],
         max_depth=max_depth_ls[best_results['max_depth']],
@@ -391,7 +405,7 @@ if task_type == 'cla':
     print('test', best_hyper[best_hyper['set'] == 'te']['auc_roc'].mean(),
           best_hyper[best_hyper['set'] == 'te']['auc_prc'].mean())
 else:
-    print('train', best_hyper[best_hyper['set'] == 'tr']['rmse'].mean(),
+    print('train', best_hyper[best_hyper['set'] == 'tr']['rmse'].mean() ,
           best_hyper[best_hyper['set'] == 'tr']['r2'].mean(), best_hyper[best_hyper['set'] == 'tr']['mae'].mean())
     print('valid', best_hyper[best_hyper['set'] == 'va']['rmse'].mean(),
           best_hyper[best_hyper['set'] == 'va']['r2'].mean(), best_hyper[best_hyper['set'] == 'va']['mae'].mean())
