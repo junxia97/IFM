@@ -1,5 +1,6 @@
 import time
 import gc
+import torch
 from dgl.data.utils import Subset
 import pandas as pd
 from dgl.data.chem import csv_dataset, smiles_to_bigraph, MoleculeCSVDataset
@@ -14,11 +15,25 @@ from sklearn.model_selection import train_test_split
 from dgl import backend as F
 from hyperopt import fmin, tpe, hp, Trials
 import sys
-
+import argparse
 start_time = time.time()
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
-set_random_seed(seed=43)
+
+parser = argparse.ArgumentParser(description='PyTorch implementation')
+parser.add_argument('--device', type=int, default=6, help='which gpu to use if any (default: 0)')
+parser.add_argument('--data_label', type=str, default = 'esol', help='dataset.')
+#parser.add_argument('--embed', type=str, default = 'GM', help='Embedding method: None, LE, LIFM, GM, SM, IFM.')
+parser.add_argument('--epochs', type=int, default=300, help='running epochs')
+parser.add_argument('--runseed', type=int, default=43, help = "Seed for minibatch selection, random initialization.")
+parser.add_argument('--batch_size', type=int, default=128, help='batchsize')
+parser.add_argument('--patience', type=int, default=50, help='patience')
+parser.add_argument('--opt_iters', type=int, default=50, help='optimization_iters')
+parser.add_argument('--repetitions', type=int, default=50, help='splitting repetitions')
+parser.add_argument('--model_name',type=str,default='gcn', help=" 'gcn' or 'mpnn' or 'gat' or 'attentivefp' ")
+args = parser.parse_args()
+
+set_random_seed(seed=args.runseed)
 
 tasks_dic = {'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity'], 'bace': ['activity'],
              'bbbp': ['activity'], 'hiv': ['activity'],
@@ -29,6 +44,43 @@ tasks_dic = {'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity
                        'SIDER26', 'SIDER27'],
              'tox21': ['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 'NR-PPAR-gamma', 'SR-ARE',
                        'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53'],
+            'pcba':['PCBA-1030', 'PCBA-1379', 'PCBA-1452', 'PCBA-1454', 'PCBA-1457', 'PCBA-1458', 
+                  'PCBA-1460', 'PCBA-1461', 'PCBA-1468', 'PCBA-1469', 'PCBA-1471', 'PCBA-1479', 'PCBA-1631', 
+                     'PCBA-1634', 'PCBA-1688', 'PCBA-1721', 'PCBA-2100', 'PCBA-2101', 'PCBA-2147', 'PCBA-2242', 
+                     'PCBA-2326', 'PCBA-2451', 'PCBA-2517', 'PCBA-2528', 'PCBA-2546', 'PCBA-2549', 'PCBA-2551', 
+                     'PCBA-2662', 'PCBA-2675', 'PCBA-2676', 'PCBA-411', 'PCBA-463254', 'PCBA-485281', 
+                     'PCBA-485290', 'PCBA-485294', 'PCBA-485297', 'PCBA-485313', 'PCBA-485314', 'PCBA-485341', 
+                    'PCBA-485349', 'PCBA-485353', 'PCBA-485360', 'PCBA-485364', 'PCBA-485367', 'PCBA-492947', 
+                     'PCBA-493208', 'PCBA-504327', 'PCBA-504332', 'PCBA-504333', 'PCBA-504339', 'PCBA-504444', 
+                     'PCBA-504466', 'PCBA-504467', 'PCBA-504706', 'PCBA-504842', 'PCBA-504845', 'PCBA-504847', 
+                     'PCBA-504891', 'PCBA-540276', 'PCBA-540317', 'PCBA-588342', 'PCBA-588453', 'PCBA-588456', 
+                     'PCBA-588579', 'PCBA-588590', 'PCBA-588591', 'PCBA-588795', 'PCBA-588855', 'PCBA-602179', 
+                     'PCBA-602233', 'PCBA-602310', 'PCBA-602313', 'PCBA-602332', 'PCBA-624170', 'PCBA-624171', 
+                    'PCBA-624173', 'PCBA-624202', 'PCBA-624246', 'PCBA-624287', 'PCBA-624288', 'PCBA-624291', 
+                     'PCBA-624296', 'PCBA-624297', 'PCBA-624417', 'PCBA-651635', 'PCBA-651644', 'PCBA-651768', 
+                     'PCBA-651965', 'PCBA-652025', 'PCBA-652104', 'PCBA-652105', 'PCBA-652106', 'PCBA-686970', 
+                     'PCBA-686978', 'PCBA-686979', 'PCBA-720504', 'PCBA-720532', 'PCBA-720542', 'PCBA-720551', 
+                     'PCBA-720553', 'PCBA-720579', 'PCBA-720580', 'PCBA-720707', 'PCBA-720708', 'PCBA-720709', 
+                     'PCBA-720711', 'PCBA-743255', 'PCBA-743266', 'PCBA-875', 'PCBA-881', 'PCBA-883', 'PCBA-884', 
+                     'PCBA-885', 'PCBA-887', 'PCBA-891', 'PCBA-899', 'PCBA-902', 'PCBA-903', 'PCBA-904', 
+                     'PCBA-912', 'PCBA-914', 'PCBA-915', 'PCBA-924', 'PCBA-925', 'PCBA-926', 'PCBA-927', 
+                     'PCBA-938', 'PCBA-995'],
+             'qm7':['u0_atom'],
+             'qm8':['E1-CC2', 'E2-CC2', 'f1-CC2', 'f2-CC2', 'E1-PBE0', 
+                    'E2-PBE0', 'f1-PBE0', 'f2-PBE0', 'E1-PBE0.1', 'E2-PBE0.1', 
+                    'f1-PBE0.1', 'f2-PBE0.1', 'E1-CAM', 'E2-CAM', 'f1-CAM', 'f2-CAM'],
+             'qm9':['A', 'B', 'C', 'mu', 'alpha', 'homo', 'lumo', 'gap', 'r2', 'zpve', 'u0', 'u298', 
+                    'h298', 'g298', 'cv', 'u0_atom', 'u298_atom', 'h298_atom', 'g298_atom'],
+             'covid-19':['3CL_enzymatic_activity', 'ACE2_enzymatic_activity', 'HEK293_cell_line_toxicity_',
+                    'Human_fibroblast_toxicity', 'MERS_Pseudotyped_particle_entry', 
+                    'MERS_Pseudotyped_particle_entry_(Huh7_tox_counterscreen)', 
+                    'SARS-CoV_Pseudotyped_particle_entry', 
+                    'SARS-CoV_Pseudotyped_particle_entry_(VeroE6_tox_counterscreen)',
+                    'SARS-CoV-2_cytopathic_effect_(CPE)', 
+                    'SARS-CoV-2_cytopathic_effect_(host_tox_counterscreen)', 
+                    'Spike-ACE2_protein-protein_interaction_(AlphaLISA)', 
+                    'Spike-ACE2_protein-protein_interaction_(TruHit_Counterscreen)', 
+                    'TMPRSS2_enzymatic_activity'],
              'muv': [
                  "MUV-466", "MUV-548", "MUV-600", "MUV-644", "MUV-652", "MUV-689", "MUV-692", "MUV-712", "MUV-713",
                  "MUV-733", "MUV-737", "MUV-810", "MUV-832", "MUV-846", "MUV-852", "MUV-858", "MUV-859"
@@ -120,6 +172,7 @@ def run_a_train_epoch(model, data_loader, loss_func, optimizer, args):
         atom_feats = bg.ndata.pop('h')
         bond_feats = bg.edata.pop('e')
 
+        # transfer the data to device(cpu or cuda)
         labels, masks, atom_feats, bond_feats = labels.to(args['device']), masks.to(args['device']), atom_feats.to(
             args['device']), bond_feats.to(args['device'])
 
@@ -150,7 +203,6 @@ def run_a_train_epoch(model, data_loader, loss_func, optimizer, args):
         prc_score = np.mean(train_metric.compute_metric('prc_auc'))  # in case of multi-tasks
         return {'roc_auc': roc_score, 'prc_auc': prc_score}
 
-
 def run_an_eval_epoch(model, data_loader, args):
     model.eval()
     eval_metric = Meter()
@@ -170,6 +222,7 @@ def run_an_eval_epoch(model, data_loader, args):
             masks.cpu()
             atom_feats.cpu()
             bond_feats.cpu()
+            # loss.cpu()
             torch.cuda.empty_cache()
             eval_metric.update(outputs, labels, masks)
     if args['metric'] == 'rmse':
@@ -196,22 +249,39 @@ def all_one_zeros(series):
         flag = True
     return flag
 
-data_label=sys.argv[1] 
-file_name = "./dataset/dataset_used_for_modeling/"+data_label+".csv"  # ./dataset/bace.csv
-model_name = sys.argv[2]  # 'gcn' or 'mpnn' or 'gat' or 'attentivefp'
-task_type = sys.argv[3]  # 'cla' or 'reg'
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+dataset_label = args.data_label
+file_name =  './dataset/'+dataset_label+'_moe_pubsubfp.csv'
+
+#dataset_label = file_name.split('/')[-1].split('_')[0]  # dataset_label = 'esol'
+if dataset_label=='esol' or dataset_label== 'freesolv' or dataset_label== 'lipop':
+    task_type='reg'
+else:
+    task_type='cla'
+
+
+
+sm_num = 20
+data_label = args.data_label
+dataset_label = data_label
+
+file_name='./dataset/dataset_used_for_modeling/'+dataset_label+'.csv'
+# file_name = './sm-dataset/'+str(sm_num)+'smoothed_'+dataset_label+'_for_gnn.csv'
+#file_name='./sm-dataset/esol.csv'
+model_name = args.model_name  # 'gcn' or 'mpnn' or 'gat' or 'attentivefp'
+task_type ='cla'  # 'cla' or 'reg'
+CUDA=str(args.device)
+device = torch.device('cuda:'+CUDA if torch.cuda.is_available() else 'cpu')
 my_df = pd.read_csv(file_name)
+
 AtomFeaturizer = AttentiveFPAtomFeaturizer
 BondFeaturizer = AttentiveFPBondFeaturizer
-epochs = 300
-batch_size = 128*5
-patience = 50
-opt_iters = 50
-repetitions = 50
+epochs = args.epochs
+batch_size = args.batch_size
+patience = args.patience
+opt_iters = args.opt_iters
+repetitions = args.repetitions
 num_workers = 0
-args = {'device': device, 'task': data_label,
-        'metric': 'roc_auc' if task_type == 'cla' else 'rmse', 'model': model_name}
+args = {'device': device, 'task': data_label, 'metric': 'roc_auc' if task_type == 'cla' else 'rmse', 'model': model_name}
 tasks = tasks_dic[args['task']]
 Hspace = {'gcn': dict(l2=hp.choice('l2', [0, 10 ** -8, 10 ** -6, 10 ** -4]),
                       lr=hp.choice('lr', [10 ** -2.5, 10 ** -3.5, 10 ** -1.5]),
@@ -237,6 +307,8 @@ Hspace = {'gcn': dict(l2=hp.choice('l2', [0, 10 ** -8, 10 ** -6, 10 ** -4]),
                               graph_feat_size=hp.choice('graph_feat_size', [50, 100, 200, 300]))}
 hyper_space = Hspace[args['model']]
 
+# get the df and generate graph, attention for graph generation for some bad smiles
+# my_df.iloc[:, 0:-1], except with 'group'
 my_dataset: MoleculeCSVDataset = csv_dataset.MoleculeCSVDataset(my_df.iloc[:, 0:-1], smiles_to_bigraph, AtomFeaturizer,
                                                                 BondFeaturizer, 'cano_smiles',
                                                                 file_name.replace('.csv', '.bin'))
@@ -245,8 +317,12 @@ if task_type == 'cla':
 else:
     pos_weight = None
 
-tr_indx, val_indx, te_indx = my_df[my_df.group == 'train'].index, my_df[my_df.group == 'valid'].index, my_df[
-    my_df.group == 'test'].index
+# get the training, validation, and test sets
+dataseta=pd.read_csv(file_name)
+tr_indx = my_df[dataseta.group == 'train'].index
+val_indx = my_df[dataseta.group == 'valid'].index
+te_indx = my_df[dataseta.group == 'test'].index
+# train_set, val_set, test_set = Subset(my_dataset, tr_indx), Subset(my_dataset, val_indx), Subset(my_dataset, te_indx)
 train_loader = DataLoader(Subset(my_dataset, tr_indx), batch_size=batch_size, shuffle=True,
                           collate_fn=collate_molgraphs, num_workers=num_workers)
 val_loader = DataLoader(Subset(my_dataset, val_indx), batch_size=batch_size, shuffle=True,
@@ -254,8 +330,10 @@ val_loader = DataLoader(Subset(my_dataset, val_indx), batch_size=batch_size, shu
 test_loader = DataLoader(Subset(my_dataset, te_indx), batch_size=batch_size, shuffle=True,
                          collate_fn=collate_molgraphs, num_workers=num_workers)
 
-
+# enumerate(train_loader)
+# print(train_loader)
 def hyper_opt(hyper_paras):
+    # get the model instance
     if model_name == 'gcn':
         my_model = GCNClassifier(in_feats=AtomFeaturizer.feat_size('h'),
                                  gcn_hidden_feats=hyper_paras['gcn_hidden_feats'],
@@ -350,6 +428,59 @@ num_layers_ls = [2, 3, 4, 5, 6]
 num_timesteps_ls = [1, 2, 3, 4, 5]
 graph_feat_size_ls = [50, 100, 200, 300]
 dropout_ls = [0, 0.1, 0.3, 0.5]
+# if model_name == 'gcn':
+#     best_model = GCNClassifier(in_feats=AtomFeaturizer.feat_size('h'),
+#                                gcn_hidden_feats=hidden_feats_ls[opt_res['gcn_hidden_feats']],
+#                                n_tasks=len(tasks),
+#                                classifier_hidden_feats=classifier_hidden_feats_ls[opt_res['classifier_hidden_feats']])
+#     best_model_file = './saved_model/%s_%s_%s_%.6f_%s_%s.pth' % (args['model'], args['task'],
+#                                                                  l2_ls[opt_res['l2']], lr_ls[opt_res['lr']],
+#                                                                  hidden_feats_ls[opt_res['gcn_hidden_feats']],
+#                                                                  classifier_hidden_feats_ls[
+#                                                                      opt_res['classifier_hidden_feats']])
+# elif model_name == 'mpnn':
+#     best_model = MPNNModel(node_input_dim=AtomFeaturizer.feat_size('h'), edge_input_dim=BondFeaturizer.feat_size('e'),
+#                            output_dim=len(tasks), node_hidden_dim=node_hidden_dim_ls[opt_res['node_hidden_dim']],
+#                            edge_hidden_dim=edge_hidden_dim_ls[opt_res['edge_hidden_dim']],
+#                            num_layer_set2set=num_layer_set2set_ls[opt_res['num_layer_set2set']])
+#     best_model_file = './saved_model/%s_%s_%s_%.6f_%s_%s_%s.pth' % (args['model'], args['task'],
+#                                                                     l2_ls[opt_res['l2']], lr_ls[opt_res['lr']],
+#                                                                     node_hidden_dim_ls[opt_res['node_hidden_dim']],
+#                                                                     edge_hidden_dim_ls[opt_res['edge_hidden_dim']],
+#                                                                     num_layer_set2set_ls[opt_res['num_layer_set2set']])
+# elif model_name == 'attentivefp':
+#     best_model = AttentiveFP(node_feat_size=AtomFeaturizer.feat_size('h'), edge_feat_size=BondFeaturizer.feat_size('e'),
+#                            num_layers=num_layers_ls[opt_res['num_layers']],
+#                            num_timesteps=num_timesteps_ls[opt_res['num_timesteps']],
+#                            graph_feat_size=graph_feat_size_ls[opt_res['graph_feat_size']], output_size=len(tasks),
+#                            dropout=dropout_ls[opt_res['dropout']])
+#     best_model_file = './saved_model/%s_%s_%s_%.6f_%s_%s_%s_%s.pth' % (args['model'], args['task'],
+#                                                                        l2_ls[opt_res['l2']], lr_ls[opt_res['lr']],
+#                                                                        num_layers_ls[opt_res['num_layers']],
+#                                                                        num_timesteps_ls[opt_res['num_timesteps']],
+#                                                                        graph_feat_size_ls[opt_res['graph_feat_size']],
+#                                                                        dropout_ls[opt_res['dropout']])
+#
+# else:
+#     best_model = GATClassifier(in_feats=AtomFeaturizer.feat_size('h'),
+#                                gat_hidden_feats=hidden_feats_ls[opt_res['gat_hidden_feats']],
+#                                num_heads=num_heads_ls[opt_res['num_heads']], n_tasks=len(tasks),
+#                                classifier_hidden_feats=classifier_hidden_feats_ls[opt_res['classifier_hidden_feats']])
+#     best_model_file = './saved_model/%s_%s_%s_%.6f_%s_%s_%s.pth' % (args['model'], args['task'],
+#                                                                     l2_ls[opt_res['l2']], lr_ls[opt_res['lr']],
+#                                                                     hidden_feats_ls[opt_res['gat_hidden_feats']],
+#                                                                     num_heads_ls[opt_res['num_heads']],
+#                                                                     classifier_hidden_feats_ls[
+#                                                                     opt_res['classifier_hidden_feats']])
+# print(best_model_file)
+# best_model.load_state_dict(torch.load(best_model_file, map_location=device)['model_state_dict'])
+# best_model.to(device)
+# tr_scores = run_an_eval_epoch(best_model, train_loader, args)
+# val_scores = run_an_eval_epoch(best_model, val_loader, args)
+# te_scores = run_an_eval_epoch(best_model, test_loader, args)
+# print('training set:', tr_scores)
+# print('validation set:', val_scores)
+# print('test set:', te_scores)
 
 # 50 repetitions based on the best model
 tr_res = []

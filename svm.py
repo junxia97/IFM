@@ -1,6 +1,7 @@
 import time
 import warnings
 import sys
+from xgboost import XGBRegressor, XGBClassifier
 from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 import pandas as pd
 import numpy as np
@@ -8,15 +9,30 @@ from sklearn.feature_selection import SelectPercentile, f_classif, SelectFromMod
 from sklearn.metrics import roc_auc_score, confusion_matrix, precision_recall_curve, auc, mean_squared_error, \
     r2_score, mean_absolute_error
 from sklearn.model_selection import train_test_split
-from xgboost import XGBRegressor, XGBClassifier
 from sklearn import svm
 import multiprocessing
-
+import argparse
 start = time.time()
 warnings.filterwarnings("ignore")
 
+#parser.add_argument('--device', type=int, default=6, help='which gpu to use if any (default: 0)')
+#parser.add_argument('--embed', type=str, default = 'GM', help='Embedding method: None, LE, LIFM, GM, SM, IFM.')
+#parser.add_argument('--epochs', type=int, default=300, help='running epochs')
+#parser.add_argument('--batch_size', type=int, default=128, help='batchsize')
+parser = argparse.ArgumentParser(description='PyTorch implementation')
+parser.add_argument('--data_label', type=str, default = 'sider', help='dataset.')
+parser.add_argument('--runseed', type=int, default=43, help = "Seed for minibatch selection, random initialization.")
+parser.add_argument('--patience', type=int, default=50, help='Patience')
+parser.add_argument('--opt_iters', type=int, default=50, help='Optimization_iters')
+parser.add_argument('--repetitions', type=int, default=50, help='Splitting repetitions')
+parser.add_argument('--num_pools', type =int , default=28 , help= 'The number of poolings')
+args = parser.parse_args()
+#set np.random seed
+np.random.seed(args.runseed)
+
 def standardize(col):
     return (col - np.mean(col)) / np.std(col)
+
 
 # the metrics for classification
 def statistical(y_true, y_pred, y_pro):
@@ -131,15 +147,29 @@ tasks_dic = {'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity
                          'Tanguay_ZF_120hpf_ActivityScore', 'Tanguay_ZF_120hpf_JAW_up',
                          'Tanguay_ZF_120hpf_MORT_up', 'Tanguay_ZF_120hpf_PE_up',
                          'Tanguay_ZF_120hpf_SNOU_up', 'Tanguay_ZF_120hpf_YSE_up']}
-file_name = sys.argv[1]  # './dataset/esol_moe_pubsubfp.csv'
-task_type = sys.argv[2]  # 'reg' or 'cla'
-dataset_label = file_name.split('/')[-1].split('_')[0]  # dataset_label = 'esol'
+#file_name = sys.argv[1]  # './dataset/esol_moe_pubsubfp.csv'
+
+dataset_label = args.data_label
+file_name =  './dataset/'+dataset_label+'_moe_pubsubfp.csv'
+
+#dataset_label = file_name.split('/')[-1].split('_')[0]  # dataset_label = 'esol'
+if dataset_label=='esol' or dataset_label== 'freesolv' or dataset_label== 'lipop':
+  task_type='reg'
+else:
+  task_type='cla'
+
 tasks = tasks_dic[dataset_label]
-OPT_ITERS = 50
-repetitions = 50
-num_pools = 28
+OPT_ITERS = args.opt_iters
+repetitions = args.repetitions
+num_pools = args.num_pools
 space_ = {'C': hp.uniform('C', 0.1, 100), 'gamma': hp.uniform('gamma', 0, 0.2)}
 dataset = pd.read_csv(file_name)
+# if dataset_label == 'freesolv':
+#     dataset.drop(columns=['vsa_pol', 'h_emd', 'a_donacc'], inplace=True)
+# elif dataset_label == 'esol':
+#     dataset.drop(columns=['logS', 'h_logS', 'SlogP'], inplace=True)
+# else:
+#     dataset.drop(columns=['SlogP', 'h_logD', 'logS'], inplace=True)
 pd_res = []
 
 
@@ -184,9 +214,10 @@ def hyper_runing(subtask):
     sub_dataset[cols_] = sub_dataset[cols_].apply(standardize, axis=0)
 
     # get the attentivefp data splits
-    data_tr = sub_dataset[sub_dataset['group'] == 'train']
-    data_va = sub_dataset[sub_dataset['group'] == 'valid']
-    data_te = sub_dataset[sub_dataset['group'] == 'test']
+    sub_datasett=pd.read_csv('./dataset/dataset_used_for_modeling/'+dataset_label+'.csv')
+    data_tr = sub_dataset[sub_datasett['group'] == 'train']
+    data_va = sub_dataset[sub_datasett['group'] == 'valid']
+    data_te = sub_dataset[sub_datasett['group'] == 'test']
 
     # prepare data for training
     # training set
@@ -333,7 +364,7 @@ else:
           best_hyper[best_hyper['set'] == 'te']['r2'].mean(), best_hyper[best_hyper['set'] == 'te']['mae'].mean())
 
 # 50 repetitions based on the best hypers
-dataset.drop(columns=['group'], inplace=True)
+#dataset.drop(columns=['group'], inplace=True)
 pd_res = []
 
 

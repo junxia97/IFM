@@ -12,6 +12,21 @@ from xgboost import XGBRegressor, XGBClassifier
 import multiprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import RandomForestRegressor
+import argparse
+#parser.add_argument('--device', type=int, default=6, help='which gpu to use if any (default: 0)')
+#parser.add_argument('--embed', type=str, default = 'GM', help='Embedding method: None, LE, LIFM, GM, SM, IFM.')
+#parser.add_argument('--epochs', type=int, default=300, help='running epochs')
+#parser.add_argument('--batch_size', type=int, default=128, help='batchsize')
+parser = argparse.ArgumentParser(description='PyTorch implementation')
+parser.add_argument('--data_label', type=str, default = 'esol', help='dataset.')
+parser.add_argument('--runseed', type=int, default=43, help = "Seed for minibatch selection, random initialization.")
+parser.add_argument('--patience', type=int, default=50, help='Patience')
+parser.add_argument('--opt_iters', type=int, default=50, help='Optimization_iters')
+parser.add_argument('--repetitions', type=int, default=50, help='Splitting repetitions')
+parser.add_argument('--num_pools', type =int , default=5 , help= 'The number of poolings')
+args = parser.parse_args()
+#set np.random seed
+np.random.seed(args.runseed)
 
 start = time.time()
 warnings.filterwarnings("ignore")
@@ -44,7 +59,8 @@ def all_one_zeros(data):
 
 
 feature_selection = False
-tasks_dic = {'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity'], 'bace': ['activity'],
+tasks_dic = {'qm7':['u0_atom'],
+             'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity'], 'bace': ['activity'],
              'bbbp': ['activity'], 'hiv': ['activity'],
              'clintox': ['FDA_APPROVED', 'CT_TOX'],
              'sider': ['SIDER1', 'SIDER2', 'SIDER3', 'SIDER4', 'SIDER5', 'SIDER6', 'SIDER7', 'SIDER8', 'SIDER9',
@@ -134,13 +150,20 @@ tasks_dic = {'freesolv': ['activity'], 'esol': ['activity'], 'lipop': ['activity
                          'Tanguay_ZF_120hpf_ActivityScore', 'Tanguay_ZF_120hpf_JAW_up',
                          'Tanguay_ZF_120hpf_MORT_up', 'Tanguay_ZF_120hpf_PE_up',
                          'Tanguay_ZF_120hpf_SNOU_up', 'Tanguay_ZF_120hpf_YSE_up']}
-file_name = sys.argv[1]  # './dataset/esol_moe_pubsubfp.csv'
-task_type = sys.argv[2]  # 'reg' or 'cla'
-dataset_label = file_name.split('/')[-1].split('_')[0]  # dataset_label = 'esol'
+sm_num=10
+dataset_label =args.data_label
+file_name =  './dataset/'+dataset_label+'_moe_pubsubfp.csv'
+
+
+if dataset_label=='esol' or dataset_label== 'freesolv' or dataset_label== 'lipop':
+  task_type='reg'
+else:
+  task_type='cla'
+  
 tasks = tasks_dic[dataset_label]
-OPT_ITERS = 50
-repetitions = 50
-num_pools = 5
+OPT_ITERS = args.opt_iters
+repetitions = args.repetitions
+num_pools = args.num_pools
 space_ = {'n_estimators': hp.choice('n_estimators', [10, 50, 100, 200, 300, 400, 500]),
           'max_depth': hp.choice('max_depth', range(3, 12)),
           'min_samples_leaf': hp.choice('min_samples_leaf', [1, 3, 5, 10, 20, 50]),
@@ -152,6 +175,12 @@ max_depth_ls = range(3, 12)
 min_samples_leaf_ls = [1, 3, 5, 10, 20, 50]
 max_features_ls = ['sqrt', 'log2', 0.7, 0.8, 0.9]
 dataset = pd.read_csv(file_name)
+# if dataset_label == 'freesolv':
+#     dataset.drop(columns=['vsa_pol', 'h_emd', 'a_donacc'], inplace=True)
+# elif dataset_label == 'esol':
+#     dataset.drop(columns=['logS', 'h_logS', 'SlogP'], inplace=True)
+# else:
+#     dataset.drop(columns=['SlogP', 'h_logD', 'logS'], inplace=True)
 pd_res = []
 
 
@@ -196,9 +225,10 @@ def hyper_runing(subtask):
     sub_dataset[cols_] = sub_dataset[cols_].apply(standardize, axis=0)
 
     # get the attentivefp data splits
-    data_tr = sub_dataset[sub_dataset['group'] == 'train']
-    data_va = sub_dataset[sub_dataset['group'] == 'valid']
-    data_te = sub_dataset[sub_dataset['group'] == 'test']
+    sub_datasett=pd.read_csv('./dataset/dataset_used_for_modeling/'+dataset_label+'.csv')
+    data_tr = sub_dataset[sub_datasett['group'] == 'train']
+    data_va = sub_dataset[sub_datasett['group'] == 'valid']
+    data_te = sub_dataset[sub_datasett['group'] == 'test']
 
     # prepare data for training
     # training set
@@ -368,7 +398,7 @@ else:
     print('test', best_hyper[best_hyper['set'] == 'te']['rmse'].mean(), best_hyper[best_hyper['set'] == 'te']['r2'].mean(), best_hyper[best_hyper['set'] == 'te']['mae'].mean())
 
 # 50 repetitions based on thr best hypers
-dataset.drop(columns=['group'], inplace=True)
+#dataset.drop(columns=['group'], inplace=True)
 pd_res = []
 
 
@@ -552,6 +582,34 @@ stat_res.to_csv('./stat_res/' + dataset_label + '_rf_statistical_results_split50
 # single tasks
 if len(tasks) == 1:
     args = {'data_label': dataset_label, 'metric': 'auc_roc' if task_type == 'cla' else 'rmse', 'model': 'RF'}
+    print('{}_{}: the mean {} for the training set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
+                                                                                     args['metric'], np.mean(
+            stat_res[stat_res['set'] == 'tr'][args['metric']]), np.std(
+            stat_res[stat_res['set'] == 'tr'][args['metric']])))
+    print(
+        '{}_{}: the mean {} for the validation set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
+                                                                                     args['metric'], np.mean(
+                stat_res[stat_res['set'] == 'va'][args['metric']]), np.std(
+                stat_res[stat_res['set'] == 'va'][args['metric']])))
+    print('{}_{}: the mean {} for the test set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
+                                                                                 args['metric'], np.mean(
+            stat_res[stat_res['set'] == 'te'][args['metric']]), np.std(
+            stat_res[stat_res['set'] == 'te'][args['metric']])))
+    args = {'data_label': dataset_label, 'metric': 'auc_roc' if task_type == 'cla' else 'mae', 'model': 'RF'}
+    print('{}_{}: the mean {} for the training set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
+                                                                                     args['metric'], np.mean(
+            stat_res[stat_res['set'] == 'tr'][args['metric']]), np.std(
+            stat_res[stat_res['set'] == 'tr'][args['metric']])))
+    print(
+        '{}_{}: the mean {} for the validation set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
+                                                                                     args['metric'], np.mean(
+                stat_res[stat_res['set'] == 'va'][args['metric']]), np.std(
+                stat_res[stat_res['set'] == 'va'][args['metric']])))
+    print('{}_{}: the mean {} for the test set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
+                                                                                 args['metric'], np.mean(
+            stat_res[stat_res['set'] == 'te'][args['metric']]), np.std(
+            stat_res[stat_res['set'] == 'te'][args['metric']])))
+    args = {'data_label': dataset_label, 'metric': 'auc_roc' if task_type == 'cla' else 'r2', 'model': 'RF'}
     print('{}_{}: the mean {} for the training set is {:.3f} with std {:.3f}'.format(args['data_label'], args['model'],
                                                                                      args['metric'], np.mean(
             stat_res[stat_res['set'] == 'tr'][args['metric']]), np.std(
